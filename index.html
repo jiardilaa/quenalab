@@ -31,10 +31,18 @@ button,input,select{font:inherit;color:var(--tx);background:#222a35;border:1px s
 #set input{width:76px;padding:6px}#set select{padding:6px;min-height:40px}
 #lvl{height:6px;background:#222a35;border-radius:3px;margin:6px 8px;overflow:hidden}#lvl i{display:block;height:100%;width:0;background:var(--ac)}
 .dim{opacity:.4}
+#set{flex-wrap:wrap}#bar{display:flex;gap:8px}#bar button{flex:1;padding:8px;min-height:44px;font-size:14px}
+#ov{position:fixed;inset:0;background:rgba(0,0,0,.88);display:none;z-index:9;padding:calc(12px + env(safe-area-inset-top,0px)) 12px 12px;overflow:auto}
+#ov .box{max-width:480px;margin:0 auto;background:var(--sf);border-radius:14px;padding:12px}
+.it{display:flex;gap:6px;align-items:center;margin:8px 0}.it b{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.it button{padding:6px 10px;min-height:40px}
+canvas{max-width:100%;border-radius:6px;background:#fff}button:disabled{opacity:.35}
 </style>
 </head>
 <body>
 <div id="app">
+ <div id="bar"><button id="att">📎 Adjuntar partitura</button><button id="prc">🎯 Práctica</button></div>
+ <input id="file" type="file" accept=".pdf,.musicxml,.xml,application/pdf" multiple hidden>
+ <div id="ov"><div class="box" id="ovb"></div></div>
  <section id="top">
   <svg viewBox="0 -10 300 130" id="staff" aria-label="Pentagrama"></svg>
   <div id="cifra">—</div>
@@ -50,7 +58,7 @@ button,input,select{font:inherit;color:var(--tx);background:#222a35;border:1px s
   <div id="status">Listo</div>
   <button id="go">Escuchar</button>
   <div id="lvl"><i id="lv"></i></div>
-  <div id="set">A4 <input id="ref" type="number" value="440" min="415" max="466" step="1"> Sens. <select id="sens"><option value="-4">Alta</option><option value="0" selected>Media</option><option value="6">Baja</option></select></div>
+  <div id="set">A4 <input id="ref" type="number" value="440" min="415" max="466" step="1"> Sens. <select id="sens"><option value="-4">Alta</option><option value="0" selected>Media</option><option value="6">Baja</option></select> ♩= <input id="bpm" type="number" value="80" min="40" max="200"> Trans. <input id="tr" type="number" value="0" min="-24" max="24"></div>
  </section>
 </div>
 <script>
@@ -91,15 +99,117 @@ const st=$("staff");
 for(let i=0;i<5;i++)el(st,"line",{x1:50,x2:290,y1:50+i*10,y2:50+i*10,stroke:"#A9B4C2","stroke-width":1.2});
 el(st,"text",{x:8,y:100,"font-size":66,fill:"#F5F7FA","font-family":"'Noto Music','Segoe UI Symbol','Apple Symbols',serif"},"𝄞");
 const ng=el(st,"g",{});
-function drawStaff(m,dim){
- ng.innerHTML="";if(m==null)return;
- const pc=((m%12)+12)%12,oct=Math.floor(m/12)-1,step=7*oct+LET[pc]-30,y=90-step*5,x=190;
- ng.setAttribute("opacity",dim?.4:1);
- if(step<0)for(let s=-2;s>=step;s-=2)el(ng,"line",{x1:x-16,x2:x+16,y1:90-s*5,y2:90-s*5,stroke:"#F5F7FA","stroke-width":1.5});
- if(step>8)for(let s=10;s<=step;s+=2)el(ng,"line",{x1:x-16,x2:x+16,y1:90-s*5,y2:90-s*5,stroke:"#F5F7FA","stroke-width":1.5});
- el(ng,"ellipse",{cx:x,cy:y,rx:8,ry:5.5,fill:"#FFC83D",transform:`rotate(-18 ${x} ${y})`});
- if(ACC[pc])el(ng,"text",{x:x-30,y:y+6,"font-size":20,fill:"#FFC83D"},"♯");
+function drawStaff(){}
+let evs=[],practice=null;
+const DUR=[[4,"w"],[2,"h"],[1,"q"],[.5,"e"],[.25,"s"]];
+const kind=b=>{let k="q",bd=1e9;for(const d of DUR){const e=Math.abs(Math.log(Math.max(b,.05)/d[0]));if(e<bd){bd=e;k=d[1]}}return k};
+function glyph(g,x,m,k,col){
+ const pc=((m%12)+12)%12,oct=Math.floor(m/12)-1,step=7*oct+LET[pc]-30,y=90-step*5;
+ const lg=s=>el(g,"line",{x1:x-11,x2:x+11,y1:90-s*5,y2:90-s*5,stroke:col,"stroke-width":1.3});
+ for(let s=-2;s>=step;s-=2)lg(s);for(let s=10;s<=step;s+=2)lg(s);
+ el(g,"ellipse",{cx:x,cy:y,rx:6.5,ry:4.6,fill:k==="w"||k==="h"?"none":col,stroke:col,"stroke-width":1.7,transform:`rotate(-18 ${x} ${y})`});
+ if(ACC[pc])el(g,"text",{x:x-21,y:y+5,"font-size":15,fill:col},"♯");
+ if(k!=="w"){const up=step<4,sx=up?x+6:x-6,y2=up?y-26:y+26;
+  el(g,"line",{x1:sx,x2:sx,y1:y,y2,stroke:col,"stroke-width":1.5});
+  const n=k==="e"?1:k==="s"?2:0;
+  for(let i=0;i<n;i++){const fy=y2+(up?i*5:-i*5);el(g,"path",{d:up?`M${sx} ${fy} q9 6 5 15`:`M${sx} ${fy} q9 -6 5 -15`,fill:"none",stroke:col,"stroke-width":1.7})}}
 }
+function drawRoll(now){
+ ng.innerHTML="";if(practice)return drawPractice();
+ const bs=60/(+$("bpm").value||80),pps=44/bs,X=t=>270-(now-t)/1000*pps;
+ while(evs.length&&X(evs[0].t0)<20)evs.shift();
+ for(const e of evs){const x=X(e.t0);if(x<48)continue;glyph(ng,x,e.m,kind(((e.done?e.t1:now)-e.t0)/1000/bs),e.done?"#F5F7FA":"#FFC83D")}
+}
+function drawPractice(){
+ const p=practice,s0=Math.floor(Math.min(p.idx,p.notes.length-1)/8)*8,tr=+$("tr").value||0;
+ p.notes.slice(s0,s0+8).forEach((n,i)=>{const k=s0+i,x=72+i*28,t=p.st[k],cur=k===p.idx,col=t==="ok"?"#3DDC84":t==="w"?"#FF5A5F":cur?"#FFC83D":"#A9B4C2";
+  if(n.m==null)el(ng,"rect",{x:x-5,y:82,width:10,height:4,fill:col});else glyph(ng,x,n.m+tr,kind(n.d),col);
+  if(cur)el(ng,"rect",{x:x-14,y:-4,width:28,height:118,fill:"none",stroke:"#FFC83D","stroke-dasharray":"3 3",rx:6})});
+}
+// ---- Partituras (IndexedDB)
+const DB=new Promise((ok,ko)=>{const r=indexedDB.open("quenalab",1);r.onupgradeneeded=()=>r.result.createObjectStore("s",{keyPath:"id"});r.onsuccess=()=>ok(r.result);r.onerror=()=>ko(r.error)});
+const tx=async(mode,f)=>{const db=await DB;return new Promise((ok,ko)=>{const t=db.transaction("s",mode),r=f(t.objectStore("s"));t.oncomplete=()=>ok(r.result);t.onerror=()=>ko(t.error)})};
+const all=()=>tx("readonly",s=>s.getAll()),put=o=>tx("readwrite",s=>s.put(o)),del=id=>tx("readwrite",s=>s.delete(id));
+function parseXML(txt){
+ const d=new DOMParser().parseFromString(txt,"application/xml");
+ if(d.querySelector("parsererror"))throw new Error("XML inválido");
+ const part=d.querySelector("part");if(!part)throw new Error("No es MusicXML (exporta sin comprimir)");
+ const S={C:0,D:2,E:4,F:5,G:7,A:9,B:11};let div=1,out=[];
+ for(const me of part.querySelectorAll("measure")){
+  const dv=me.querySelector("attributes > divisions");if(dv)div=+dv.textContent||div;
+  for(const n of me.querySelectorAll(":scope > note")){
+   if(n.querySelector("grace")||n.querySelector("chord"))continue;
+   const b=(+(n.querySelector("duration")||{}).textContent||0)/div;
+   if(n.querySelector('tie[type="stop"]')&&out.length){out[out.length-1].d+=b;continue}
+   if(n.querySelector("rest")){out.push({m:null,d:b});continue}
+   const pt=n.querySelector("pitch");if(!pt)continue;
+   const al=pt.querySelector("alter");
+   out.push({m:12*(+pt.querySelector("octave").textContent+1)+S[pt.querySelector("step").textContent]+(al?+al.textContent:0),d:b});
+  }}
+ if(!out.some(n=>n.m!=null))throw new Error("Sin notas");
+ return out;
+}
+$("att").onclick=()=>$("file").click();
+$("file").onchange=async e=>{
+ const L=await all(),msg=[];
+ for(const f of e.target.files){
+  const base=f.name.replace(/\.[^.]+$/,""),ext=f.name.split(".").pop().toLowerCase();
+  let sc=L.find(x=>x.name===base);if(!sc){sc={id:Date.now()+Math.random(),name:base};L.push(sc)}
+  try{if(ext==="pdf")sc.pdf=f;else sc.notes=parseXML(await f.text());await put(sc)}catch(err){msg.push(f.name+": "+err.message)}
+ }
+ e.target.value="";openList(msg.join(" · "));
+};
+async function openList(note){
+ const L=await all(),b=$("ovb");b.innerHTML="";
+ const h=document.createElement("div");h.className="lbl";h.textContent=note||"PDF = para verla. MusicXML = para que la app verifique tu práctica. Mismo nombre = misma partitura.";b.append(h);
+ if(!L.length)b.append(document.createTextNode("Aún no hay partituras."));
+ for(const s of L){
+  const d=document.createElement("div");d.className="it";const nm=document.createElement("b");nm.textContent=s.name;d.append(nm);
+  const mk=(t,f,off)=>{const x=document.createElement("button");x.textContent=t;x.onclick=f;x.disabled=!!off;d.append(x)};
+  mk("🎯 Practicar",()=>startPractice(s),!s.notes);mk("PDF",()=>viewPdf(s),!s.pdf);mk("🗑",async()=>{await del(s.id);openList()});b.append(d);
+ }
+ const c=document.createElement("button");c.textContent="Cerrar";c.onclick=()=>$("ov").style.display="none";b.append(c);$("ov").style.display="block";
+}
+function loadPdfJs(){return window.pdfjsLib?Promise.resolve():new Promise((ok,ko)=>{const t=document.createElement("script");t.src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";t.onload=()=>{pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";ok()};t.onerror=()=>ko(new Error("Se necesita conexión la primera vez para el visor PDF"));document.head.append(t)})}
+async function viewPdf(s){
+ const b=$("ovb");b.textContent="Cargando…";
+ try{
+  await loadPdfJs();const pdf=await pdfjsLib.getDocument({data:await s.pdf.arrayBuffer()}).promise;let n=1;
+  b.innerHTML="";const c=document.createElement("canvas"),bar=document.createElement("div"),lab=document.createElement("span");bar.className="it";
+  const go=async d=>{n=Math.min(pdf.numPages,Math.max(1,n+d));const pg=await pdf.getPage(n),v0=pg.getViewport({scale:1}),vp=pg.getViewport({scale:Math.min(2.5,2*b.clientWidth/v0.width)});c.width=vp.width;c.height=vp.height;await pg.render({canvasContext:c.getContext("2d"),viewport:vp}).promise;lab.textContent=n+" / "+pdf.numPages};
+  const mk=(t,f)=>{const x=document.createElement("button");x.textContent=t;x.onclick=f;bar.append(x)};
+  mk("◀",()=>go(-1));bar.append(lab);mk("▶",()=>go(1));mk("Volver",()=>openList());
+  b.append(bar,c);await go(0);
+ }catch(err){b.textContent="No se pudo abrir el PDF: "+err.message;const x=document.createElement("button");x.textContent="Volver";x.onclick=()=>openList();b.append(x)}
+}
+// ---- Práctica
+const expM=()=>{const p=practice;return p&&p.idx<p.notes.length?p.notes[p.idx].m+(+$("tr").value||0):null};
+function skipRests(){const p=practice;while(p.idx<p.notes.length&&p.notes[p.idx].m==null){p.st[p.idx]="r";p.idx++}}
+function startPractice(sc){
+ practice={name:sc.name,notes:sc.notes,idx:0,st:[],wrong:0,cents:[],okAt:0,cs:[],wf:false,rel:false,acc:null};
+ skipRests();$("ov").style.display="none";$("prc").textContent="⏹ Salir práctica";
+ if(!run)start();setFinger(expM());pinfo();
+}
+function exitPractice(){const t=$("cifra").textContent;practice=null;$("prc").textContent="🎯 Práctica";clearNote();if(run)ui("listen","Toca una nota");$("cifra").textContent=t.startsWith("✔")?t:"—"}
+function pinfo(){
+ const p=practice,done=p.st.filter(x=>x==="ok"||x==="w").length,tot=p.notes.filter(n=>n.m!=null).length;
+ if(p.idx>=p.notes.length){const ok=p.st.filter(x=>x==="ok").length,dev=p.cents.length?p.cents.reduce((a,b)=>a+b,0)/p.cents.length:0;
+  $("cifra").textContent=`✔ Fin · ${Math.round(100*ok/Math.max(1,tot))}% al primer intento · desv. ${dev.toFixed(0)}¢`;return}
+ $("cifra").textContent=`${p.name} · ${done}/${tot} · errores ${p.wrong}`;
+}
+function judge(mn,c){
+ const p=practice;if(p.idx>=p.notes.length)return;
+ if(p.rel){if(mn===p.acc)return;p.rel=false}
+ const now=performance.now();
+ if(mn===expM()){
+  if(!p.okAt)p.okAt=now;p.cs.push(Math.abs(c));
+  if(now-p.okAt>=180){
+   p.st[p.idx]=p.wf?"w":"ok";p.cents.push(p.cs.reduce((a,b)=>a+b,0)/p.cs.length);
+   p.idx++;skipRests();p.okAt=0;p.cs=[];p.wf=false;p.rel=true;p.acc=mn;setFinger(expM());
+  }
+ }else{p.okAt=0;p.cs=[];if(!p.wf){p.wf=true;p.wrong++}}
+}
+$("prc").onclick=()=>practice?exitPractice():openList();
 // ---- Estado
 let ctx,an,buf,stream,run=false,S="idle";
 let noise=-60,calT0=0,calV=[],open=false,hangUntil=0,hist=[],ema=null,cand=0,lastM=null,lastSeen=0,needle=0,tgt=0,hasNote=false;
@@ -130,7 +240,7 @@ function stop(){
  run=false;if(stream)stream.getTracks().forEach(t=>t.stop());if(ctx)ctx.close();
  $("go").textContent="Escuchar";ui("idle","Listo");clearNote();
 }
-function clearNote(){hasNote=false;$("note").textContent="–";$("hz").textContent="— Hz";$("cents").textContent="— ¢";$("cifra").textContent="—";drawStaff(null);setFinger(null);tgt=0}
+function clearNote(){hasNote=false;$("note").textContent="–";$("hz").textContent="— Hz";$("cents").textContent="— ¢";$("cifra").textContent="—";if(practice){pinfo();setFinger(expM())}else setFinger(null);tgt=0}
 // ---- YIN
 const TH=0.15;
 function yin(x,fs){
@@ -176,16 +286,16 @@ function loop(now){
   if(cand>=3){lastSeen=now;show(ema)}
  }else{cand=0;if(!open||!res){}}
  if(hasNote&&now-lastSeen>300){
-  ui("silence","Sin señal");drawStaff(lastShown,true);
+  ui("silence","Sin señal");{const l=evs[evs.length-1];if(l&&!l.done){l.done=true;l.t1=lastSeen}}if(practice){practice.rel=false;practice.okAt=0}
   if(now-lastSeen>1800){clearNote();ema=null;hist=[];ui("listen","Toca una nota")}
  }
- needle+=(tgt-needle)*0.25;
+ needle+=(tgt-needle)*0.25;drawRoll(now);
  $("needle").style.left=(50+needle)+"%";
 }
 let lastShown=null;
 function show(m){
  const mn=Math.round(m),c=100*(m-mn),f=fref()*Math.pow(2,(m-69)/12),pc=((mn%12)+12)%12,oct=Math.floor(mn/12)-1;
- hasNote=true;lastShown=mn;tgt=Math.max(-50,Math.min(50,c));
+ hasNote=true;lastShown=mn;{const nw=performance.now(),ev=evs[evs.length-1];if(ev&&!ev.done&&ev.m===mn)ev.t1=nw;else{if(ev)ev.done=true;evs.push({m:mn,t0:nw-50,t1:nw,done:false})}}if(practice)judge(mn,c);tgt=Math.max(-50,Math.min(50,c));
  $("note").textContent=NAMES[pc]+oct;
  $("cifra").textContent=NAMES[pc]+oct+" · "+SOL[pc]+oct;
  $("hz").textContent=f.toFixed(1)+" Hz";
@@ -194,7 +304,7 @@ function show(m){
  $("cents").style.color=col;
  $("status").style.color=col;
  ui("note",a<=5?"Afinado ✔":(c<0?"Sube ▲":"Baja ▼"));
- drawStaff(mn,false);setFinger(mn);
+ if(practice)pinfo();else setFinger(mn);
 }
 $("go").onclick=()=>run?stop():start();
 document.addEventListener("visibilitychange",()=>{if(!run)return;if(document.hidden)ctx.suspend();else ctx.resume()});
