@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>QuenaLab</title>
+<style>
+:root{--bg:#0B0D10;--sf:#151A21;--tx:#F5F7FA;--t2:#A9B4C2;--ac:#FFC83D;--ok:#3DDC84;--nr:#FFB020;--bad:#FF5A5F;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--tx);font-family:Inter,system-ui,-apple-system,Roboto,sans-serif;font-variant-numeric:tabular-nums}
+#app{max-width:480px;margin:0 auto;height:100%;display:flex;flex-direction:column;gap:8px;padding:8px}
+section{background:var(--sf);border-radius:14px;padding:8px;position:relative}
+#top{flex:3}#mid{flex:4;display:flex;justify-content:center}#bot{flex:3.2;text-align:center}
+svg{width:100%;height:100%;display:block}
+.lbl{color:var(--t2);font-size:14px}
+#cifra{position:absolute;bottom:6px;left:0;right:0;text-align:center;font-size:20px;font-weight:700}
+#note{font-size:72px;font-weight:700;line-height:1}
+#hz{font-size:30px;font-weight:600}#cents{font-size:30px;font-weight:600}
+.row{display:flex;justify-content:space-around;align-items:baseline}
+#meter{position:relative;height:34px;margin:10px 8px 4px;background:linear-gradient(90deg,var(--bad) 0 20%,var(--nr) 20% 35%,var(--ok) 35% 45%,var(--nr) 45% 55%,var(--ok) 55% 65%,var(--nr) 65% 80%,var(--bad) 80%);opacity:.9;border-radius:6px}
+#meter:before{content:"";position:absolute;left:50%;top:-4px;bottom:-4px;width:2px;background:#fff}
+#needle{position:absolute;top:-8px;width:6px;height:50px;margin-left:-3px;background:var(--ac);border-radius:3px;left:50%;box-shadow:0 0 0 2px #000}
+#status{font-size:20px;font-weight:600;min-height:28px}
+button,input,select{font:inherit;color:var(--tx);background:#222a35;border:1px solid #394555;border-radius:10px;padding:10px 14px;min-height:48px}
+#go{background:var(--ac);color:#000;font-weight:700;border:0;width:70%}
+#set{display:flex;gap:8px;justify-content:center;align-items:center;font-size:14px;color:var(--t2);margin-top:6px}
+#set input{width:76px;padding:6px}#set select{padding:6px;min-height:40px}
+#lvl{height:6px;background:#222a35;border-radius:3px;margin:6px 8px;overflow:hidden}#lvl i{display:block;height:100%;width:0;background:var(--ac)}
+.dim{opacity:.4}
+</style>
+</head>
+<body>
+<div id="app">
+ <section id="top">
+  <svg viewBox="0 -10 300 130" id="staff" aria-label="Pentagrama"></svg>
+  <div id="cifra">—</div>
+ </section>
+ <section id="mid">
+  <svg viewBox="0 0 200 300" id="quena" aria-label="Digitación de la quena" style="max-width:240px"></svg>
+ </section>
+ <section id="bot">
+  <div class="row"><div id="note">–</div></div>
+  <div class="row"><span id="hz">— Hz</span><span id="cents">— ¢</span></div>
+  <div id="meter"><div id="needle"></div></div>
+  <div class="row lbl"><span>−50</span><span>−25</span><span>0</span><span>+25</span><span>+50</span></div>
+  <div id="status">Listo</div>
+  <button id="go">Escuchar</button>
+  <div id="lvl"><i id="lv"></i></div>
+  <div id="set">A4 <input id="ref" type="number" value="440" min="415" max="466" step="1"> Sens. <select id="sens"><option value="-4">Alta</option><option value="0" selected>Media</option><option value="6">Baja</option></select></div>
+ </section>
+</div>
+<script>
+// ===== Digitaciones quena en Sol (SIN VALIDAR: edítalas con tu quena) =====
+// midi: [pulgar, h1..h6]  1=cerrado 0=abierto 0.5=medio. h1 = más cercano a la embocadura.
+const FING={
+ 67:[1,1,1,1,1,1,1],69:[1,1,1,1,1,1,0],71:[1,1,1,1,1,0,0],72:[1,1,1,1,0,0,0],
+ 74:[1,1,1,0,0,0,0],76:[1,1,0,0,0,0,0],78:[1,0,0,0,0,0,0]
+};
+function fingerFor(m){
+ if(FING[m])return{f:FING[m],note:""};
+ if(m>=79&&FING[m-12])return{f:FING[m-12],note:"2.º registro (soplo fuerte)"};
+ if(m>=79&&m-24>=67&&FING[m-24])return{f:FING[m-24],note:"Registro agudo: verificar"};
+ return{f:null,note:"Sin digitación en tabla"};
+}
+const NS="http://www.w3.org/2000/svg",$=id=>document.getElementById(id);
+const el=(p,t,a,txt)=>{const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);if(txt!=null)e.textContent=txt;p.appendChild(e);return e};
+const NAMES=["C","C♯","D","D♯","E","F","F♯","G","G♯","A","A♯","B"],SOL=["Do","Do♯","Re","Re♯","Mi","Fa","Fa♯","Sol","Sol♯","La","La♯","Si"];
+const LET=[0,0,1,1,2,3,3,4,4,5,5,6],ACC=[0,1,0,1,0,0,1,0,1,0,1,0];
+// ---- Quena SVG
+const q=$("quena");
+el(q,"rect",{x:70,y:14,width:44,height:276,rx:12,fill:"#222a35",stroke:"#A9B4C2","stroke-width":2});
+el(q,"path",{d:"M70 14 L92 34 L114 14",fill:"#0B0D10",stroke:"#A9B4C2","stroke-width":2});
+const holes=[];
+for(let i=0;i<7;i++){
+ const th=i===0,cx=th?150:92,cy=th?112:80+(i-1)*34;
+ holes.push(el(q,"circle",{cx,cy,r:12,fill:"none",stroke:"#F5F7FA","stroke-width":2.5}));
+ el(q,"text",{x:th?cx+20:cx-34,y:cy+5,fill:"#A9B4C2","font-size":14},th?"P":i);
+}
+const fnote=el(q,"text",{x:100,y:296,fill:"#A9B4C2","font-size":12,"text-anchor":"middle"},"");
+function setFinger(m){
+ const r=m==null?{f:null,note:""}:fingerFor(m);
+ holes.forEach((h,i)=>{const v=r.f?r.f[i]:0;h.setAttribute("fill",v?"#F5F7FA":"none");h.setAttribute("fill-opacity",v===1?1:v);h.setAttribute("opacity",r.f||m==null?1:.35)});
+ fnote.textContent=r.note;
+}
+// ---- Pentagrama
+const st=$("staff");
+for(let i=0;i<5;i++)el(st,"line",{x1:50,x2:290,y1:50+i*10,y2:50+i*10,stroke:"#A9B4C2","stroke-width":1.2});
+el(st,"text",{x:8,y:100,"font-size":66,fill:"#F5F7FA","font-family":"'Noto Music','Segoe UI Symbol','Apple Symbols',serif"},"𝄞");
+const ng=el(st,"g",{});
+function drawStaff(m,dim){
+ ng.innerHTML="";if(m==null)return;
+ const pc=((m%12)+12)%12,oct=Math.floor(m/12)-1,step=7*oct+LET[pc]-30,y=90-step*5,x=190;
+ ng.setAttribute("opacity",dim?.4:1);
+ if(step<0)for(let s=-2;s>=step;s-=2)el(ng,"line",{x1:x-16,x2:x+16,y1:90-s*5,y2:90-s*5,stroke:"#F5F7FA","stroke-width":1.5});
+ if(step>8)for(let s=10;s<=step;s+=2)el(ng,"line",{x1:x-16,x2:x+16,y1:90-s*5,y2:90-s*5,stroke:"#F5F7FA","stroke-width":1.5});
+ el(ng,"ellipse",{cx:x,cy:y,rx:8,ry:5.5,fill:"#FFC83D",transform:`rotate(-18 ${x} ${y})`});
+ if(ACC[pc])el(ng,"text",{x:x-30,y:y+6,"font-size":20,fill:"#FFC83D"},"♯");
+}
+// ---- Estado
+let ctx,an,buf,stream,run=false,S="idle";
+let noise=-60,calT0=0,calV=[],open=false,hangUntil=0,hist=[],ema=null,cand=0,lastM=null,lastSeen=0,needle=0,tgt=0,hasNote=false;
+const fref=()=>Math.min(466,Math.max(415,+$("ref").value||440));
+function ui(s,msg){S=s;$("status").textContent=msg||""}
+async function start(){
+ try{
+  ui("perm","Solicitando micrófono…");
+  stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}});
+  ctx=new (window.AudioContext||window.webkitAudioContext)({latencyHint:"interactive"});
+  await ctx.resume();
+  const src=ctx.createMediaStreamSource(stream);
+  const hp1=ctx.createBiquadFilter(),hp2=ctx.createBiquadFilter(),lp=ctx.createBiquadFilter();
+  hp1.type=hp2.type="highpass";hp1.frequency.value=hp2.frequency.value=330;lp.type="lowpass";lp.frequency.value=2500;
+  an=ctx.createAnalyser();an.fftSize=2048;an.smoothingTimeConstant=0;buf=new Float32Array(an.fftSize);
+  src.connect(hp1);hp1.connect(hp2);hp2.connect(lp);lp.connect(an);
+  ctx.onstatechange=()=>{if(run&&ctx.state!=="running"&&ctx.state!=="closed")ctx.resume().catch(()=>{})};
+  noise=-60;calV=[];calT0=performance.now();open=false;hist=[];ema=null;cand=0;run=true;
+  $("go").textContent="Detener";ui("listen","Calibrando ambiente…");
+  requestAnimationFrame(loop);
+ }catch(e){
+  run=false;
+  const d=e&&(e.name==="NotAllowedError"||e.name==="SecurityError");
+  ui("error",d?"Micrófono bloqueado. Actívalo en los ajustes del navegador (o abre el archivo fuera del visor).":"Error de audio: "+(e&&e.message||e));
+ }
+}
+function stop(){
+ run=false;if(stream)stream.getTracks().forEach(t=>t.stop());if(ctx)ctx.close();
+ $("go").textContent="Escuchar";ui("idle","Listo");clearNote();
+}
+function clearNote(){hasNote=false;$("note").textContent="–";$("hz").textContent="— Hz";$("cents").textContent="— ¢";$("cifra").textContent="—";drawStaff(null);setFinger(null);tgt=0}
+// ---- YIN
+const TH=0.15;
+function yin(x,fs){
+ const tMin=Math.floor(fs/1900),tMax=Math.ceil(fs/370),W=x.length-tMax-1;
+ const d=new Float32Array(tMax+2);
+ for(let t=tMin-1;t<=tMax+1;t++){let s=0;for(let j=0;j<W;j++){const v=x[j]-x[j+t];s+=v*v}d[t]=s}
+ // CMNDF (acumulado desde tau=1 aproximado: se calcula completo)
+ const dp=new Float32Array(tMax+2);dp[0]=1;let run=0;
+ for(let t=1;t<=tMax+1;t++){let s=0;
+  if(t<tMin-1){for(let j=0;j<W;j++){const v=x[j]-x[j+t];s+=v*v};d[t]=s}
+  run+=d[t];dp[t]=d[t]*t/(run||1e-12)}
+ let tau=-1;
+ for(let t=tMin;t<=tMax;t++){if(dp[t]<TH){while(t+1<=tMax&&dp[t+1]<dp[t])t++;tau=t;break}}
+ if(tau<0)return null;
+ const a=dp[tau-1],b=dp[tau],c=dp[tau+1],den=2*(a-2*b+c);
+ const th=den?tau+(a-c)/den:tau;
+ return{f:fs/th,conf:1-b};
+}
+function loop(now){
+ if(!run)return;requestAnimationFrame(loop);
+ an.getFloatTimeDomainData(buf);
+ let s=0;for(let i=0;i<buf.length;i++)s+=buf[i]*buf[i];
+ const db=20*Math.log10(Math.sqrt(s/buf.length)+1e-9);
+ $("lv").style.width=Math.max(0,Math.min(100,(db+70)/70*100))+"%";
+ if(now-calT0<1000){calV.push(db);if(now-calT0>900&&calV.length){calV.sort((a,b)=>a-b);noise=calV[Math.floor(calV.length*.9)]}}
+ else if(S==="listen"&&!hasNote&&now-calT0<1100)ui("listen","Toca una nota");
+ const cal=now-calT0<1000;
+ const lo=Math.max(noise+10,-50)+(+$("sens").value),lc=lo-4;
+ if(!cal){
+  if(db>lo){open=true;hangUntil=now+300}
+  else if(open&&db<lc&&now>hangUntil)open=false;
+  if(!open&&db<lc)noise=noise*0.995+db*0.005;
+ }
+ let res=null;
+ if(!cal&&open)res=yin(buf,ctx.sampleRate);
+ if(res&&res.conf>=0.85){
+  const m=69+12*Math.log2(res.f/fref());
+  if(lastM!=null&&Math.abs(m-lastM)<0.8)cand++;else cand=1;
+  lastM=m;
+  hist.push(m);if(hist.length>5)hist.shift();
+  const med=[...hist].sort((a,b)=>a-b)[hist.length>>1];
+  if(ema==null||Math.abs(med-ema)>0.8){ema=med;hist=[m]}else ema=0.35*med+0.65*ema;
+  if(cand>=3){lastSeen=now;show(ema)}
+ }else{cand=0;if(!open||!res){}}
+ if(hasNote&&now-lastSeen>300){
+  ui("silence","Sin señal");drawStaff(lastShown,true);
+  if(now-lastSeen>1800){clearNote();ema=null;hist=[];ui("listen","Toca una nota")}
+ }
+ needle+=(tgt-needle)*0.25;
+ $("needle").style.left=(50+needle)+"%";
+}
+let lastShown=null;
+function show(m){
+ const mn=Math.round(m),c=100*(m-mn),f=fref()*Math.pow(2,(m-69)/12),pc=((mn%12)+12)%12,oct=Math.floor(mn/12)-1;
+ hasNote=true;lastShown=mn;tgt=Math.max(-50,Math.min(50,c));
+ $("note").textContent=NAMES[pc]+oct;
+ $("cifra").textContent=NAMES[pc]+oct+" · "+SOL[pc]+oct;
+ $("hz").textContent=f.toFixed(1)+" Hz";
+ $("cents").textContent=(c>=0?"+":"")+Math.round(c)+" ¢";
+ const a=Math.abs(c),col=a<=5?"var(--ok)":a<=15?"var(--nr)":"var(--bad)";
+ $("cents").style.color=col;
+ $("status").style.color=col;
+ ui("note",a<=5?"Afinado ✔":(c<0?"Sube ▲":"Baja ▼"));
+ drawStaff(mn,false);setFinger(mn);
+}
+$("go").onclick=()=>run?stop():start();
+document.addEventListener("visibilitychange",()=>{if(!run)return;if(document.hidden)ctx.suspend();else ctx.resume()});
+setFinger(null);
+</script>
+</body>
+</html>
