@@ -1,0 +1,11 @@
+{
+  "name": "quenalab",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Afinador y asistente de práctica para quena",
+  "dependencies": {
+    "@capacitor/android": "^6.2.0",
+    "@capacitor/cli": "^6.2.0",
+    "@capacitor/core": "^6.2.0"
+  }
+}
