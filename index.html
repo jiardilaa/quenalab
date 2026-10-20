@@ -4,6 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>QuenaLab</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0B0D10">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
 <style>
 :root{--bg:#0B0D10;--sf:#151A21;--tx:#F5F7FA;--t2:#A9B4C2;--ac:#FFC83D;--ok:#3DDC84;--nr:#FFB020;--bad:#FF5A5F;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
 *{box-sizing:border-box}
@@ -195,6 +199,7 @@ function show(m){
 $("go").onclick=()=>run?stop():start();
 document.addEventListener("visibilitychange",()=>{if(!run)return;if(document.hidden)ctx.suspend();else ctx.resume()});
 setFinger(null);
+if("serviceWorker"in navigator&&location.protocol==="https:")navigator.serviceWorker.register("sw.js").catch(()=>{});
 </script>
 </body>
 </html>
