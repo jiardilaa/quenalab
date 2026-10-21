@@ -31,7 +31,7 @@ button,input,select{font:inherit;color:var(--tx);background:#222a35;border:1px s
 #set input{width:76px;padding:6px}#set select{padding:6px;min-height:40px}
 #lvl{height:6px;background:#222a35;border-radius:3px;margin:6px 8px;overflow:hidden}#lvl i{display:block;height:100%;width:0;background:var(--ac)}
 .dim{opacity:.4}
-#set{flex-wrap:wrap}#bar{display:flex;gap:8px}#bar button{flex:1;padding:8px;min-height:44px;font-size:14px}
+#set{flex-wrap:wrap}#oct{text-align:center;font-size:17px;font-weight:700;color:var(--ac);padding:2px 0;min-height:26px}#bar{display:flex;gap:8px}#bar button{flex:1;padding:8px;min-height:44px;font-size:14px}
 #ov{position:fixed;inset:0;background:rgba(0,0,0,.88);display:none;z-index:9;padding:calc(12px + env(safe-area-inset-top,0px)) 12px 12px;overflow:auto}
 #ov .box{max-width:480px;margin:0 auto;background:var(--sf);border-radius:14px;padding:12px}
 .it{display:flex;gap:6px;align-items:center;margin:8px 0}.it b{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.it button{padding:6px 10px;min-height:40px}
@@ -40,13 +40,14 @@ canvas{max-width:100%;border-radius:6px;background:#fff}button:disabled{opacity:
 </head>
 <body>
 <div id="app">
- <div id="bar"><button id="att">📎 Adjuntar .xml</button><button id="prc">🎯 Práctica</button><button id="met">● Metro</button></div>
- <input id="file" type="file" accept=".musicxml,.xml,text/xml,application/xml" multiple hidden>
+ <div id="bar"><button id="att">📎 Adjuntar .xml/.mxl</button><button id="prc">🎯 Práctica</button><button id="met">● Metro</button></div>
+ <input id="file" type="file" multiple hidden>
  <div id="ov"><div class="box" id="ovb"></div></div>
  <section id="top">
   <svg viewBox="0 -10 300 130" id="staff" aria-label="Pentagrama"></svg>
   <div id="cifra">—</div>
  </section>
+ <div id="oct">Octava: toca una nota</div>
  <section id="mid">
   <svg viewBox="0 0 200 300" id="quena" aria-label="Digitación de la quena" style="max-width:240px"></svg>
  </section>
@@ -115,10 +116,18 @@ function glyph(g,x,m,k,col){
   for(let i=0;i<n;i++){const fy=y2+(up?i*5:-i*5);el(g,"path",{d:up?`M${sx} ${fy} q9 6 5 15`:`M${sx} ${fy} q9 -6 5 -15`,fill:"none",stroke:col,"stroke-width":1.7})}}
 }
 function drawRoll(now){
- ng.innerHTML="";if(practice)return drawPractice();
+ octInfo();ng.innerHTML="";if(practice)return drawPractice();
  const bs=60/(+$("bpm").value||80),pps=44/bs,X=t=>270-(now-t)/1000*pps;
  while(evs.length&&X(evs[0].t0)<20)evs.shift();
  for(const e of evs){const x=X(e.t0);if(x<48)continue;glyph(ng,x,e.m,kind(((e.done?e.t1:now)-e.t0)/1000/bs),e.done?"#F5F7FA":"#FFC83D")}
+}
+function octInfo(){
+ const o=m=>Math.floor(m/12)-1,nm=m=>SOL[((m%12)+12)%12]+o(m),b=$("oct");
+ if(practice){const e=expM();
+  if(e==null){b.textContent="🎯 ¡Ejercicio completado!";b.style.color="var(--ok)";return}
+  b.textContent=`🎯 Toca en la OCTAVA ${o(e)} · ${nm(e)}`+(hasNote?`  |  escuchas: octava ${o(lastShown)}`:"");
+  b.style.color=hasNote&&lastShown===e?"var(--ok)":"var(--ac)";return}
+ b.style.color="var(--ac)";b.textContent=hasNote?`Octava ${o(lastShown)} · ${nm(lastShown)}`:"Octava: toca una nota";
 }
 function drawPractice(){
  const p=practice,s0=Math.floor(Math.min(p.idx,p.notes.length-1)/8)*8,tr=+$("tr").value||0;
@@ -130,15 +139,35 @@ function drawPractice(){
 const DB=new Promise((ok,ko)=>{const r=indexedDB.open("quenalab",1);r.onupgradeneeded=()=>r.result.createObjectStore("s",{keyPath:"id"});r.onsuccess=()=>ok(r.result);r.onerror=()=>ko(r.error)});
 const tx=async(mode,f)=>{const db=await DB;return new Promise((ok,ko)=>{const t=db.transaction("s",mode),r=f(t.objectStore("s"));t.oncomplete=()=>ok(r.result);t.onerror=()=>ko(t.error)})};
 const all=()=>tx("readonly",s=>s.getAll()),put=o=>tx("readwrite",s=>s.put(o)),del=id=>tx("readwrite",s=>s.delete(id));
+async function mxlToXml(f){
+ const u=new Uint8Array(await f.arrayBuffer()),dv=new DataView(u.buffer),td=new TextDecoder();
+ let e=u.length-22;while(e>=0&&dv.getUint32(e,true)!==0x06054b50)e--;
+ if(e<0)throw new Error("ZIP inválido");
+ const n=dv.getUint16(e+10,true);let q=dv.getUint32(e+16,true);const ents=[];
+ for(let i=0;i<n;i++){
+  const nl=dv.getUint16(q+28,true),xl=dv.getUint16(q+30,true),cl=dv.getUint16(q+32,true);
+  ents.push({name:td.decode(u.subarray(q+46,q+46+nl)),meth:dv.getUint16(q+10,true),cs:dv.getUint32(q+20,true),off:dv.getUint32(q+42,true)});q+=46+nl+xl+cl;
+ }
+ const rd=async x=>{const o=x.off,a=o+30+dv.getUint16(o+26,true)+dv.getUint16(o+28,true),d=u.subarray(a,a+x.cs);
+  if(x.meth===0)return td.decode(d);
+  return new Response(new Blob([d]).stream().pipeThrough(new DecompressionStream("deflate-raw"))).text()};
+ let main=ents.find(x=>!/^META-INF\//i.test(x.name)&&/\.(xml|musicxml)$/i.test(x.name));
+ const c=ents.find(x=>/META-INF\/container\.xml$/i.test(x.name));
+ if(c){const m=(await rd(c)).match(/full-path="([^"]+)"/);if(m){const t=ents.find(x=>x.name===m[1]);if(t)main=t}}
+ if(!main)throw new Error("El .mxl no contiene partitura");
+ return rd(main);
+}
 function parseXML(txt){
  const d=new DOMParser().parseFromString(txt,"application/xml");
  if(d.querySelector("parsererror"))throw new Error("XML inválido");
  const part=d.querySelector("part");if(!part)throw new Error("No es MusicXML (exporta sin comprimir)");
- const S={C:0,D:2,E:4,F:5,G:7,A:9,B:11};let div=1,out=[];
+ const S={C:0,D:2,E:4,F:5,G:7,A:9,B:11};let div=1,out=[],fv=null;
  for(const me of part.querySelectorAll("measure")){
   const dv=me.querySelector("attributes > divisions");if(dv)div=+dv.textContent||div;
   for(const n of me.querySelectorAll(":scope > note")){
    if(n.querySelector("grace")||n.querySelector("chord"))continue;
+   const sf=n.querySelector("staff");if(sf&&+sf.textContent!==1)continue;
+   const vo=n.querySelector("voice");if(vo){if(fv==null)fv=vo.textContent;else if(vo.textContent!==fv)continue}
    const b=(+(n.querySelector("duration")||{}).textContent||0)/div;
    if(n.querySelector('tie[type="stop"]')&&out.length){out[out.length-1].d+=b;continue}
    if(n.querySelector("rest")){out.push({m:null,d:b});continue}
@@ -155,7 +184,7 @@ $("file").onchange=async e=>{
  for(const f of e.target.files){
   const base=f.name.replace(/\.[^.]+$/,""),ext=f.name.split(".").pop().toLowerCase();
   let sc=L.find(x=>x.name===base);if(!sc){sc={id:Date.now()+Math.random(),name:base};L.push(sc)}
-  try{if(!/^(xml|musicxml)$/.test(ext))throw new Error("solo .xml / .musicxml");sc.notes=parseXML(await f.text());await put(sc)}catch(err){msg.push(f.name+": "+err.message)}
+  try{if(!/^(xml|musicxml|mxl)$/.test(ext))throw new Error("usa .xml, .musicxml o .mxl");sc.notes=parseXML(ext==="mxl"?await mxlToXml(f):await f.text());await put(sc)}catch(err){msg.push(f.name+": "+err.message)}
  }
  e.target.value="";openList(msg.join(" · "));
 };
@@ -179,7 +208,13 @@ const EX=[
 ];
 // Feliz cumpleaños (3/4) en tonalidad de Sol, empieza en Re5: todas las notas tienen digitación en la tabla
 const HB=[[74,.75],[74,.25],[76,1],[74,1],[79,1],[78,3],[74,.75],[74,.25],[76,1],[74,1],[81,1],[79,3],[74,.75],[74,.25],[86,1],[83,1],[79,1],[78,1],[76,1],[84,.75],[84,.25],[83,1],[79,1],[81,1],[79,3]].map(([m,d])=>({m,d}));
-const SONGS=[{n:"🎵 Feliz cumpleaños (quena en Sol)",i:"Tonalidad de Sol, compás de 3/4. Empieza en Re5; usa el segundo registro (Re6 en «cumpleaños feliz»).",notes:HB}];
+const SD=(t,str)=>str.split(" ").map(x=>{const[a,b]=x.split(":"),d=+a;return{m:t+12*Math.floor(d/7)+IV[((d%7)+7)%7],d:b?+b:1}});
+const SONGS=[
+{n:"🎵 Feliz cumpleaños (quena en Sol)",i:"Tonalidad de Sol, compás de 3/4. Empieza en Re5; usa el segundo registro (Re6 en «cumpleaños feliz»).",notes:HB},
+{n:"🎵 Himno a la alegría (Beethoven)",i:"Principiante. Escrita en Re mayor para que quepa en la quena: de La4 a La5.",notes:SD(74,"2 2 3 4 4 3 2 1 0 0 1 2 2:1.5 1:.5 1:2 2 2 3 4 4 3 2 1 0 0 1 2 1:1.5 0:.5 0:2 1 1 2 0 1 2:.5 3:.5 2 0 1 2:.5 3:.5 2 1 0 1 -3:2 2 2 3 4 4 3 2 1 0 0 1 2 1:1.5 0:.5 0:2")},
+{n:"🎵 Estrellita (Brilla, brilla)",i:"Principiante. Solo 6 notas (Sol4 a Mi5): ideal para limpiar saltos de quinta.",notes:SD(67,"0 0 4 4 5 5 4:2 3 3 2 2 1 1 0:2 4 4 3 3 2 2 1:2 4 4 3 3 2 2 1:2 0 0 4 4 5 5 4:2 3 3 2 2 1 1 0:2")},
+{n:"🎵 Mary tenía un corderito",i:"Principiante. Solo 5 notas (Sol4 a Re5); la usan quenistas de quena en Sol para sus primeras melodías.",notes:SD(67,"2 1 0 1 2 2 2:2 1 1 1:2 2 4 4:2 2 1 0 1 2 2 2 2 1 1 2 1 0:4")}
+];
 async function openList(note){
  const L=(await all()).filter(x=>x.notes),b=$("ovb");b.innerHTML="";
  const head=t=>{const h=document.createElement("div");h.className="lbl";h.style.margin="12px 0 2px";h.textContent=t;b.append(h)};
